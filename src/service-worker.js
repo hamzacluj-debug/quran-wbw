@@ -256,6 +256,26 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 
+	// Handle Range requests (fonts/images) from cache
+	if (cachingEnabled && event.request.headers.has('range')) {
+		event.respondWith(
+			(async () => {
+				const allCacheNames = Object.values(cacheNames);
+
+				for (const cacheName of allCacheNames) {
+					const cache = await caches.open(cacheName);
+					const cachedResponse = await cache.match(event.request.url);
+					if (cachedResponse) {
+						return cachedResponse; // serve full file
+					}
+				}
+
+				return fetch(event.request);
+			})()
+		);
+		return;
+	}
+
 	// Handle navigation requests FIRST
 	if (event.request.mode === 'navigate' && cachingEnabled) {
 		event.respondWith(handleNavigationRequest(event.request));
@@ -268,17 +288,9 @@ self.addEventListener('fetch', (event) => {
 				const allCacheNames = Object.values(cacheNames);
 				for (const cacheName of allCacheNames) {
 					const cache = await caches.open(cacheName);
-					let cachedResponse = await cache.match(event.request);
+					const cachedResponse = await cache.match(event.request);
 					if (cachedResponse) {
 						return cachedResponse;
-					}
-
-					// fallback for same-origin static assets (fonts/images/etc)
-					if (url.origin === self.location.origin) {
-						cachedResponse = await cache.match(url.pathname);
-						if (cachedResponse) {
-							return cachedResponse;
-						}
 					}
 				}
 			}
