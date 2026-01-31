@@ -29,7 +29,6 @@ const cacheNames = {
 	mushafData: 'quranwbw-mushaf-data', // Mushaf pages and fonts
 	morphologyData: 'quranwbw-morphology-data', // Morphology data files
 	tafisrData: 'quranwbw-tafisr-data' // Tafsir data files
-	// staticAssets: 'quranwbw-static-assets' // CDN files, fonts, etc.
 };
 
 // Files we should never cache (the service worker itself and its settings)
@@ -96,65 +95,39 @@ self.addEventListener('install', () => {
 /**
  * ACTIVATE EVENT
  * Runs when service worker becomes active (takes control of the page)
- *
- * This is where we:
- * 1. Check if user had offline mode enabled before
- * 2. If yes, automatically update their cache with new content
- * 3. Delete old caches from previous versions ONLY AFTER new cache is complete
  */
 self.addEventListener('activate', (event) => {
 	event.waitUntil(
 		(async () => {
-			// Check if user previously enabled offline mode
 			cachingEnabled = await getCachingStatus();
 
-			// If they did, automatically recache everything with the new version
 			if (cachingEnabled) {
-				console.log('Caching was previously enabled, updating cache...');
-
-				// Tell the website that we're updating the cache
 				const clients = await self.clients.matchAll();
 				clients.forEach((client) => {
 					client.postMessage({ type: 'CACHE_UPDATE_STARTED' });
 				});
 
-				// Download and cache all content (WAIT for this to complete)
 				await performCaching();
 
-				// Tell the website we're done updating
+				// Delete ONLY old core caches, keep everything else
+				const keys = await caches.keys();
+
+				await Promise.all(
+					keys.map((key) => {
+						// Match old versioned core caches only
+						if (key.startsWith('quranwbw-cache-') && key !== cacheNames.core) {
+							console.log('Deleting old core cache:', key);
+							return caches.delete(key);
+						}
+					})
+				);
+
 				const finalClients = await self.clients.matchAll();
 				finalClients.forEach((client) => {
 					client.postMessage({ type: 'CACHE_UPDATE_COMPLETE' });
 				});
-
-				// NOW delete old caches (only after new cache is complete)
-				const keys = await caches.keys();
-				await Promise.all(
-					keys.map((key) => {
-						// Keep all named caches (config, chapterData, etc.) and only delete old versioned core caches
-						const isNamedCache = Object.values(cacheNames).some((cacheName) => cacheName === key || !cacheName.includes('${version}'));
-						if (!isNamedCache && key !== cacheNames.core) {
-							console.log('Deleting old cache:', key);
-							return caches.delete(key);
-						}
-					})
-				);
-			} else {
-				// If caching was not enabled, just delete old caches immediately
-				const keys = await caches.keys();
-				await Promise.all(
-					keys.map((key) => {
-						// Keep all named caches and only delete old versioned core caches
-						const isNamedCache = Object.values(cacheNames).some((cacheName) => cacheName === key || !cacheName.includes('${version}'));
-						if (!isNamedCache && key !== cacheNames.core) {
-							console.log('Deleting old cache:', key);
-							return caches.delete(key);
-						}
-					})
-				);
 			}
 
-			// Take control of all pages immediately
 			await self.clients.claim();
 		})()
 	);
@@ -163,31 +136,28 @@ self.addEventListener('activate', (event) => {
 /**
  * PERFORM CACHING
  * Downloads and caches all website content
- * This function is called both when user enables offline mode
- * and when service worker updates automatically
  */
 async function performCaching() {
 	const cache = await caches.open(cacheNames.core);
 
-	// Cache the homepage and all build files (CSS, JS, etc.)
+	// Cache the homepage and all build files
 	await cache.addAll(['/', ...precacheFiles]);
 
-	// Helper function to cache a list of routes with progress tracking
 	const backgroundCache = async (routes, label) => {
 		const total = routes.length;
+
 		for (let i = 0; i < routes.length; i++) {
 			try {
-				// Fetch the page
-				const response = await fetch(routes[i]);
+				// Normalize URL before caching
+				const url = new URL(routes[i], self.location.origin);
+				const response = await fetch(url);
 				if (response.ok) {
-					// Save it to cache
-					await cache.put(routes[i], response.clone());
+					await cache.put(url.toString(), response.clone());
 				}
 			} catch (error) {
 				console.warn('Install cache failed for:', routes[i], error);
 			}
 
-			// Send progress update to the website (so we can show a progress bar)
 			const progressClients = await self.clients.matchAll();
 			progressClients.forEach((client) => {
 				client.postMessage({
@@ -200,37 +170,26 @@ async function performCaching() {
 		}
 	};
 
-	// Cache all the different types of pages
 	await backgroundCache(staticRoutesToCache, 'static-routes');
 }
 
 /**
  * MESSAGE EVENT
- * Listens for messages from the website
- *
- * START_CACHING: User initially downloads the core website files
- * CACHE_URL: Cache a specific URL to a specific cache
- * DELETE_CACHE: Delete a specific cache
- * DISABLE_CACHING: User wants to clear all offline data
  */
 self.addEventListener('message', (event) => {
-	// User wants to enable offline mode
 	if (event.data.type === 'START_CACHING') {
 		cachingEnabled = true;
-		saveCachingStatus(true); // Remember this preference
+		saveCachingStatus(true);
 
 		event.waitUntil(
 			(async () => {
-				// Tell the website we're starting
 				const clients = await self.clients.matchAll();
 				clients.forEach((client) => {
 					client.postMessage({ type: 'CACHE_STARTED' });
 				});
 
-				// Download and cache everything
 				await performCaching();
 
-				// Tell the website we're done
 				const finalClients = await self.clients.matchAll();
 				finalClients.forEach((client) => {
 					client.postMessage({
@@ -240,9 +199,7 @@ self.addEventListener('message', (event) => {
 				});
 			})()
 		);
-	}
-	// Cache a specific URL to a specific cache
-	else if (event.data.type === 'CACHE_URL') {
+	} else if (event.data.type === 'CACHE_URL') {
 		event.waitUntil(
 			(async () => {
 				try {
@@ -257,40 +214,29 @@ self.addEventListener('message', (event) => {
 				}
 			})()
 		);
-	}
-	// Delete a specific cache
-	else if (event.data.type === 'DELETE_CACHE') {
+	} else if (event.data.type === 'DELETE_CACHE') {
 		event.waitUntil(
 			(async () => {
-				try {
-					const cacheName = event.data.cacheName;
-					await caches.delete(cacheName);
+				await caches.delete(event.data.cacheName);
 
-					const clients = await self.clients.matchAll();
-					clients.forEach((client) => {
-						client.postMessage({
-							type: 'CACHE_DELETED',
-							cacheName: cacheName
-						});
+				const clients = await self.clients.matchAll();
+				clients.forEach((client) => {
+					client.postMessage({
+						type: 'CACHE_DELETED',
+						cacheName: event.data.cacheName
 					});
-				} catch (error) {
-					console.warn('Failed to delete cache:', event.data.cacheName, error);
-				}
+				});
 			})()
 		);
-	}
-	// User wants to disable offline mode and clear all data
-	else if (event.data.type === 'DISABLE_CACHING') {
+	} else if (event.data.type === 'DISABLE_CACHING') {
 		cachingEnabled = false;
-		saveCachingStatus(false); // Remember this preference
+		saveCachingStatus(false);
 
 		event.waitUntil(
 			(async () => {
-				// Delete all caches
 				const keys = await caches.keys();
 				await Promise.all(keys.map((key) => caches.delete(key)));
 
-				// Tell the website cache is cleared
 				const clients = await self.clients.matchAll();
 				clients.forEach((client) => {
 					client.postMessage({ type: 'CACHE_CLEARED' });
@@ -302,27 +248,22 @@ self.addEventListener('message', (event) => {
 
 /**
  * FETCH EVENT
- * Intercepts all network requests from the website
- *
- * If offline mode is enabled:
- * - Try to serve from cache first (checks all caches)
- * - If not in cache, fetch from network and cache it
- * - If offline and not in cache, show error (or homepage for navigation)
- *
- * If offline mode is disabled:
- * - Just fetch from network normally (service worker does nothing)
  */
 self.addEventListener('fetch', (event) => {
 	const url = new URL(event.request.url);
 
-	// Ignore non-GET requests (POST, PUT, etc.) and excluded files
 	if (event.request.method !== 'GET' || stuffNotToCache.some((excluded) => url.pathname.includes(excluded))) {
+		return;
+	}
+
+	// Handle navigation requests FIRST
+	if (event.request.mode === 'navigate' && cachingEnabled) {
+		event.respondWith(handleNavigationRequest(event.request));
 		return;
 	}
 
 	event.respondWith(
 		(async () => {
-			// If caching is enabled, try all caches
 			if (cachingEnabled) {
 				const allCacheNames = Object.values(cacheNames);
 				for (const cacheName of allCacheNames) {
@@ -334,16 +275,13 @@ self.addEventListener('fetch', (event) => {
 				}
 			}
 
-			// Otherwise, fetch from network
 			try {
 				const networkResponse = await fetch(event.request);
 
-				// If request failed, just return the error
 				if (!networkResponse || networkResponse.status !== 200) {
 					return networkResponse;
 				}
 
-				// If caching is enabled, save this response for next time
 				if (cachingEnabled) {
 					const cache = await caches.open(cacheNames.core);
 					cache.put(event.request, networkResponse.clone());
@@ -351,25 +289,34 @@ self.addEventListener('fetch', (event) => {
 
 				return networkResponse;
 			} catch (error) {
-				// Network request failed (user is offline)
-
-				// For page navigation, show the homepage if cached
 				if (event.request.mode === 'navigate' && cachingEnabled) {
 					const cache = await caches.open(cacheNames.core);
-					return cache.match('/');
+					return cache.match('/offline') || cache.match('/');
 				}
 
 				console.warn(error);
 
-				// For other resources (images, CSS, etc.), return error
 				return new Response('Offline - resource not cached', {
 					status: 503,
-					statusText: 'Service Unavailable',
-					headers: new Headers({
-						'Content-Type': 'text/plain'
-					})
+					statusText: 'Service Unavailable'
 				});
 			}
 		})()
 	);
 });
+
+/**
+ * Dedicated navigation handler
+ * This solves full device-offline + Cloudflare URL mismatch issues
+ */
+async function handleNavigationRequest(request) {
+	const cache = await caches.open(cacheNames.core);
+
+	let cached = await cache.match(request);
+	if (cached) return cached;
+
+	cached = await cache.match(new Request(new URL(request.url).pathname));
+	if (cached) return cached;
+
+	return new Response('Offline', { status: 503 });
+}
