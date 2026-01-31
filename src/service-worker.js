@@ -268,9 +268,17 @@ self.addEventListener('fetch', (event) => {
 				const allCacheNames = Object.values(cacheNames);
 				for (const cacheName of allCacheNames) {
 					const cache = await caches.open(cacheName);
-					const cachedResponse = await cache.match(event.request);
+					let cachedResponse = await cache.match(event.request);
 					if (cachedResponse) {
 						return cachedResponse;
+					}
+
+					// fallback for same-origin static assets (fonts/images/etc)
+					if (url.origin === self.location.origin) {
+						cachedResponse = await cache.match(url.pathname);
+						if (cachedResponse) {
+							return cachedResponse;
+						}
 					}
 				}
 			}
