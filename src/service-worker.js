@@ -289,7 +289,7 @@ self.addEventListener('fetch', (event) => {
 
 				return networkResponse;
 			} catch (error) {
-				if (event.request.mode === 'navigate' && cachingEnabled) {
+				if (event.request.mode === 'navigate') {
 					const cache = await caches.open(cacheNames.core);
 					return cache.match('/offline') || cache.match('/');
 				}
