@@ -52,7 +52,7 @@ export const defaultSettings = {
 	userNotes: {},
 	favouriteChapters: [1, 5, 18],
 	chapter: 1,
-	downloadedDataInfo: {}
+	offlineModeSettings: {}
 };
 
 // Do not continue without setting the default user's settings first

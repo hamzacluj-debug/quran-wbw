@@ -29,9 +29,9 @@ import {
 	__playButtonsFunctionality,
 	__wordMorphologyOnClick,
 	__homepageExtrasPanelVisible,
-	__downloadedDataInfo,
 	__wideWesbiteLayoutEnabled,
-	__signLanguageModeEnabled
+	__signLanguageModeEnabled,
+	__offlineModeSettings
 } from '$utils/stores';
 
 // function to update website settings
@@ -276,12 +276,6 @@ export function updateSettings(props) {
 			userSettings.displaySettings.homepageExtrasPanelVisible = props.value;
 			break;
 
-		// for offline data settings
-		case 'downloadedDataInfo':
-			__downloadedDataInfo.set(props.value);
-			userSettings.downloadedDataInfo = props.value;
-			break;
-
 		// for toggling website wide layout
 		case 'wideWesbiteLayoutEnabled':
 			__wideWesbiteLayoutEnabled.set(props.value);
@@ -292,6 +286,12 @@ export function updateSettings(props) {
 		case 'signLanguageModeEnabled':
 			__signLanguageModeEnabled.set(props.value);
 			userSettings.displaySettings.signLanguageModeEnabled = props.value;
+			break;
+
+		// for offline mode settings
+		case 'offlineModeSettings':
+			__offlineModeSettings.set(props.value);
+			userSettings.offlineModeSettings = props.value;
 			break;
 
 		// for increasing/decreasing font sizes
